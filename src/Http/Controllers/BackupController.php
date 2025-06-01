@@ -17,10 +17,10 @@ class BackupController
 
     private function createSqlDump(): string
     {
-        $sqlFile = sprintf('%s.%s', tempnam(sys_get_temp_dir(), 'sql'), '.sql');
+        $sqlFile = sprintf('%s%ssnawbar-backup.sql', sys_get_temp_dir(), DIRECTORY_SEPARATOR);
 
         MySql::create()
-            ->setDumpBinaryPath(config()->string('snawbar-backup.mysql_dump_path'))
+            ->setDumpBinaryPath(config('snawbar-backup.mysql_dump_path'))
             ->setHost(config('database.connections.mysql.host'))
             ->setDbName(config('database.connections.mysql.database'))
             ->setUserName(config('database.connections.mysql.username'))
@@ -32,7 +32,7 @@ class BackupController
 
     private function createZipWithPassword(string $sqlFile): string
     {
-        $zipFile = sprintf('%s.%s', tempnam(sys_get_temp_dir(), 'zip'), '.zip');
+        $zipFile = sprintf('%s%ssnawbar-backup.zip', sys_get_temp_dir(), DIRECTORY_SEPARATOR);
 
         $zipArchive = $this->openZipOrAbort($zipFile, $sqlFile);
 
@@ -74,8 +74,8 @@ class BackupController
     private function generatePassowrd(): string
     {
         return is_callable(config('snawbar-backup.zip_password'))
-        ? call_user_func(config('snawbar-backup.zip_password'))
-        : config()->string('snawbar-backup.zip_password');
+            ? call_user_func(config('snawbar-backup.zip_password'))
+            : config()->string('snawbar-backup.zip_password');
     }
 
     private function getFileName(): string
