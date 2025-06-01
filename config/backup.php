@@ -79,5 +79,5 @@ return [
     |
     */
 
-    'mysql_dump_path' => NULL,
+    'mysql_dump_path' => '',
 ];

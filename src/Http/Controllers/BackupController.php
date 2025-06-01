@@ -20,7 +20,7 @@ class BackupController
         $sqlFile = sprintf('%s%ssnawbar-backup.sql', sys_get_temp_dir(), DIRECTORY_SEPARATOR);
 
         MySql::create()
-            ->setDumpBinaryPath(config('snawbar-backup.mysql_dump_path'))
+            ->setDumpBinaryPath(config()->string('snawbar-backup.mysql_dump_path'))
             ->setHost(config('database.connections.mysql.host'))
             ->setDbName(config('database.connections.mysql.database'))
             ->setUserName(config('database.connections.mysql.username'))
