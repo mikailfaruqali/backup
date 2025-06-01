@@ -49,7 +49,7 @@ class BackupController
         return response()->streamDownload(function () use ($zipFile, $sqlFile) {
             readfile($zipFile);
             $this->cleanupFiles($sqlFile, $zipFile);
-        }, call_user_func(config()->string('snawbar-backup.file_name')), ['Content-Type' => 'application/zip']);
+        }, $this->getFileName(), ['Content-Type' => 'application/zip']);
     }
 
     private function openZipOrAbort(string $zipFile, string $sqlFile): ZipArchive
@@ -73,6 +73,15 @@ class BackupController
 
     private function generatePassowrd(): string
     {
-        return call_user_func(config()->string('snawbar-backup.zip_password'));
+        return is_callable(config('snawbar-backup.zip_password'))
+        ? call_user_func(config('snawbar-backup.zip_password'))
+        : config()->string('snawbar-backup.zip_password');
+    }
+
+    private function getFileName(): string
+    {
+        return is_callable(config('snawbar-backup.file_name'))
+            ? call_user_func(config('snawbar-backup.file_name'))
+            : config()->string('snawbar-backup.file_name');
     }
 }

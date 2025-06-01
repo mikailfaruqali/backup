@@ -1,7 +1,5 @@
 <?php
 
-use Illuminate\Http\Request;
-
 return [
 
     /*
@@ -48,7 +46,7 @@ return [
     |
     */
 
-    'file_name' => fn () => sprintf('backup-%s.zip', now()->toDateString()),
+    'file_name' => 'backup.zip',
 
     /*
     |--------------------------------------------------------------------------
@@ -63,7 +61,7 @@ return [
     |
     */
 
-    'zip_password' => fn (Request $request) => $request->get('password', 'snawbar-default'),
+    'zip_password' => 'snawbar',
 
     /*
     |--------------------------------------------------------------------------
@@ -81,5 +79,5 @@ return [
     |
     */
 
-    'mysql_dump_path' => NULL,
+    'mysql_dump_path' => "mysqldump",
 ];
