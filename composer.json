@@ -1,6 +1,6 @@
 {
     "name": "mikailfaruqali/backup",
-    "description": "A Laravel package to generate database backups with optional ZIP encryption and password protection. Designed for simplicity, performance, and route-based access.",
+    "description": "Generate on-demand MySQL database backups and download them as password-protected, AES‑256 encrypted ZIP files via a simple HTTP route.",
     "keywords": [
         "laravel",
         "backup",
