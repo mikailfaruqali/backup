@@ -15,49 +15,69 @@ class BackupController
         return $this->streamAndCleanup($zipFile, $sqlFile);
     }
 
-    private function createSqlDump(): string
+    public function cleanupFiles(...$files)
     {
-        $sqlFile = sprintf('%s%ssnawbar-backup.sql', sys_get_temp_dir(), DIRECTORY_SEPARATOR);
-
-        $dbDumper = MySql::create()
-            ->setDumpBinaryPath(config()->string('snawbar-backup.mysql_dump_path'))
-            ->setHost(config('database.connections.mysql.host'))
-            ->setDbName(config('database.connections.mysql.database'))
-            ->setUserName(config('database.connections.mysql.username'))
-            ->setPassword(config('database.connections.mysql.password'));
-
-        foreach (config('snawbar-backup.extra_dump_options') as $option) {
-            $dbDumper->addExtraOption($option);
+        foreach ($files as $file) {
+            @unlink($file);
         }
+    }
 
-        $dbDumper->dumpToFile($sqlFile);
+    private function createSqlDump()
+    {
+        $sqlFile = $this->getSqlFilePath();
+        $dumper = $this->configureDumper();
+
+        $this->applyExtraOptions($dumper);
+
+        $dumper->dumpToFile($sqlFile);
 
         return $sqlFile;
     }
 
-    private function createZipWithPassword(string $sqlFile): string
+    private function getSqlFilePath()
     {
-        $zipFile = sprintf('%s%ssnawbar-backup.zip', sys_get_temp_dir(), DIRECTORY_SEPARATOR);
+        return sprintf(
+            '%s%s%s.sql',
+            sys_get_temp_dir(),
+            DIRECTORY_SEPARATOR,
+            config('database.connections.mysql.database')
+        );
+    }
 
-        $zipArchive = $this->openZipOrAbort($zipFile, $sqlFile);
+    private function configureDumper()
+    {
+        return MySql::create()
+            ->setDumpBinaryPath(config('snawbar-backup.mysql_dump_path', ''))
+            ->setHost(config('database.connections.mysql.host'))
+            ->setDbName(config('database.connections.mysql.database'))
+            ->setUserName(config('database.connections.mysql.username'))
+            ->setPassword(config('database.connections.mysql.password'));
+    }
 
-        $zipArchive->setPassword($this->generatePassowrd());
-        $zipArchive->addFile($sqlFile, basename($sqlFile));
-        $zipArchive->setEncryptionName(basename($sqlFile), ZipArchive::EM_AES_256);
-        $zipArchive->close();
+    private function applyExtraOptions($dumper)
+    {
+        foreach (config('snawbar-backup.extra_dump_options', []) as $option) {
+            $dumper->addExtraOption($option);
+        }
+    }
+
+    private function createZipWithPassword($sqlFile)
+    {
+        $zipFile = $this->getZipFilePath();
+        $archive = $this->openArchive($zipFile, $sqlFile);
+
+        $this->configureArchive($archive, $sqlFile);
+        $archive->close();
 
         return $zipFile;
     }
 
-    private function streamAndCleanup(string $zipFile, string $sqlFile)
+    private function getZipFilePath()
     {
-        return response()->streamDownload(function () use ($zipFile, $sqlFile) {
-            readfile($zipFile);
-            $this->cleanupFiles($sqlFile, $zipFile);
-        }, $this->getFileName(), ['Content-Type' => 'application/zip']);
+        return sprintf('%s%ssnawbar-backup.zip', sys_get_temp_dir(), DIRECTORY_SEPARATOR);
     }
 
-    private function openZipOrAbort(string $zipFile, string $sqlFile): ZipArchive
+    private function openArchive($zipFile, $sqlFile)
     {
         $zipArchive = new ZipArchive;
 
@@ -69,24 +89,40 @@ class BackupController
         return $zipArchive;
     }
 
-    private function cleanupFiles(string ...$files): void
+    private function configureArchive($archive, $sqlFile)
     {
-        foreach ($files as $file) {
-            @unlink($file);
-        }
+        $fileName = basename($sqlFile);
+
+        $archive->setPassword($this->getPassword());
+        $archive->addFile($sqlFile, $fileName);
+        $archive->setEncryptionName($fileName, ZipArchive::EM_AES_256);
     }
 
-    private function generatePassowrd(): string
+    private function streamAndCleanup($zipFile, $sqlFile)
     {
-        return is_callable(config('snawbar-backup.zip_password'))
-            ? call_user_func(config('snawbar-backup.zip_password'))
-            : config()->string('snawbar-backup.zip_password');
+        $controller = $this;
+
+        return response()->streamDownload(
+            function () use ($zipFile, $sqlFile, $controller) {
+                readfile($zipFile);
+                $controller->cleanupFiles($sqlFile, $zipFile);
+            },
+            $this->getFileName(),
+            ['Content-Type' => 'application/zip']
+        );
     }
 
-    private function getFileName(): string
+    private function getPassword()
     {
-        return is_callable(config('snawbar-backup.file_name'))
-            ? call_user_func(config('snawbar-backup.file_name'))
-            : config()->string('snawbar-backup.file_name');
+        $password = config('snawbar-backup.zip_password');
+
+        return is_callable($password) ? call_user_func($password) : (string) $password;
+    }
+
+    private function getFileName()
+    {
+        $fileName = config('snawbar-backup.file_name');
+
+        return is_callable($fileName) ? call_user_func($fileName) : (string) $fileName;
     }
 }
