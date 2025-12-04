@@ -1,7 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Snawbar\Backup\Http\Controllers\BackupController;
+use Snawbar\Backup\Controllers\BackupController;
 
 Route::prefix(config()->string('snawbar-backup.route', 'backup'))
     ->middleware(config()->array('snawbar-backup.middleware', ['web']))

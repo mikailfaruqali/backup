@@ -80,4 +80,31 @@ return [
     */
 
     'mysql_dump_path' => '',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Extra Dump Options
+    |--------------------------------------------------------------------------
+    |
+    | Additional command-line options to pass to mysqldump. These are useful
+    | for handling permission restrictions or customizing backup behavior.
+    |
+    | Common options:
+    |   --no-tablespaces       Skip tablespace information (fixes PROCESS privilege error)
+    |   --single-transaction   Use consistent snapshot for InnoDB tables
+    |   --quick                Retrieve rows one at a time (faster for large tables)
+    |   --skip-triggers        Don't include triggers in the dump
+    |   --skip-routines        Don't include stored procedures and functions
+    |   --skip-events          Don't include events
+    |
+    | Note: The --no-tablespaces option is included by default to prevent
+    | "Access denied; you need PROCESS privilege" errors in shared hosting
+    | or restricted database environments. This is safe to use and doesn't
+    | affect the ability to restore your database.
+    |
+    */
+
+    'extra_dump_options' => [
+        '--no-tablespaces',
+    ],
 ];

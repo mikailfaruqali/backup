@@ -1,6 +1,6 @@
 <?php
 
-namespace Snawbar\Backup\Http\Controllers;
+namespace Snawbar\Backup\Controllers;
 
 use Spatie\DbDumper\Databases\MySql;
 use ZipArchive;
@@ -19,13 +19,18 @@ class BackupController
     {
         $sqlFile = sprintf('%s%ssnawbar-backup.sql', sys_get_temp_dir(), DIRECTORY_SEPARATOR);
 
-        MySql::create()
+        $dbDumper = MySql::create()
             ->setDumpBinaryPath(config()->string('snawbar-backup.mysql_dump_path'))
             ->setHost(config('database.connections.mysql.host'))
             ->setDbName(config('database.connections.mysql.database'))
             ->setUserName(config('database.connections.mysql.username'))
-            ->setPassword(config('database.connections.mysql.password'))
-            ->dumpToFile($sqlFile);
+            ->setPassword(config('database.connections.mysql.password'));
+
+        foreach (config('snawbar-backup.extra_dump_options') as $option) {
+            $dbDumper->addExtraOption($option);
+        }
+
+        $dbDumper->dumpToFile($sqlFile);
 
         return $sqlFile;
     }
