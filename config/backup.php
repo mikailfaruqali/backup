@@ -35,6 +35,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Temporary Storage Path
+    |--------------------------------------------------------------------------
+    |
+    | Directory for temporary SQL dump and ZIP files during backup creation.
+    | Uses storage_path() by default to avoid issues with system temp directories
+    | being cleaned by OS cron jobs or having space limitations.
+    |
+    | The directory will be created automatically if it doesn't exist.
+    | Files are deleted immediately after download completes.
+    |
+    | Default: storage_path('app/temp-backups')
+    |
+    */
+
+    'temp_path' => storage_path('app/temp-backups'),
+
+    /*
+    |--------------------------------------------------------------------------
     | File Name Generator
     |--------------------------------------------------------------------------
     |

@@ -2,6 +2,7 @@
 
 namespace Snawbar\Backup\Controllers;
 
+use Illuminate\Support\Facades\File;
 use Spatie\DbDumper\Databases\MySql;
 use ZipArchive;
 
@@ -38,7 +39,7 @@ class BackupController
     {
         return sprintf(
             '%s%s%s.sql',
-            sys_get_temp_dir(),
+            $this->getTempDirectory(),
             DIRECTORY_SEPARATOR,
             config('database.connections.mysql.database')
         );
@@ -74,7 +75,7 @@ class BackupController
 
     private function getZipFilePath()
     {
-        return sprintf('%s%ssnawbar-backup.zip', sys_get_temp_dir(), DIRECTORY_SEPARATOR);
+        return sprintf('%s%ssnawbar-backup.zip', $this->getTempDirectory(), DIRECTORY_SEPARATOR);
     }
 
     private function openArchive($zipFile, $sqlFile)
@@ -110,6 +111,15 @@ class BackupController
             $this->getFileName(),
             ['Content-Type' => 'application/zip']
         );
+    }
+
+    private function getTempDirectory()
+    {
+        $directory = config('snawbar-backup.temp_path', storage_path('app/temp-backups'));
+
+        File::ensureDirectoryExists($directory);
+
+        return $directory;
     }
 
     private function getPassword()
