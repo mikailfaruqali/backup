@@ -93,7 +93,7 @@ class BackupController
         $zipFile = $this->getZipFilePath();
         $zipArchive = $this->openArchive(zipFile: $zipFile, sqlFile: $sqlFile);
 
-        $this->configureArchive(archive: $zipArchive, sqlFile: $sqlFile);
+        $this->configureArchive(zipArchive: $zipArchive, sqlFile: $sqlFile);
         $zipArchive->close();
 
         return $zipFile;
