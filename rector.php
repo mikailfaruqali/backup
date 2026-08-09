@@ -1,10 +1,6 @@
 <?php
 
-declare(strict_types=1);
-
 use Rector\Config\RectorConfig;
-use Rector\DeadCode\Rector\Assign\RemoveUnusedVariableAssignRector;
-use Rector\Php71\Rector\FuncCall\RemoveExtraParametersRector;
 use RectorLaravel\Rector\Coalesce\ApplyDefaultInsteadOfNullCoalesceRector;
 use RectorLaravel\Rector\Empty_\EmptyToBlankAndFilledFuncRector;
 use RectorLaravel\Rector\FuncCall\RemoveDumpDataDeadCodeRector;
@@ -15,10 +11,7 @@ return RectorConfig::configure()
     ->withImportNames()
     ->withPaths([
         'src',
-    ])
-    ->withSkip([
-        RemoveUnusedVariableAssignRector::class,
-        RemoveExtraParametersRector::class,
+        'config',
     ])
     ->withPreparedSets(
         deadCode: TRUE,
@@ -38,7 +31,4 @@ return RectorConfig::configure()
         LaravelSetList::LARAVEL_COLLECTION,
         LaravelSetList::LARAVEL_IF_HELPERS,
         LaravelSetList::LARAVEL_CONTAINER_STRING_TO_FULLY_QUALIFIED_NAME,
-    ])
-    ->withPhpSets(
-        php83: TRUE,
-    );
+    ]);

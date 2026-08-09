@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Snawbar\Backup;
 
 use Illuminate\Support\ServiceProvider;
