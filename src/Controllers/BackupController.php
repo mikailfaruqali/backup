@@ -1,135 +1,170 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Snawbar\Backup\Controllers;
 
 use Illuminate\Support\Facades\File;
 use Spatie\DbDumper\Databases\MySql;
+use Spatie\DbDumper\Databases\PostgreSql;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use ZipArchive;
 
 class BackupController
 {
-    public function download()
+    private ?string $tempDirectory = NULL;
+
+    public function download(): StreamedResponse
     {
         $sqlFile = $this->createSqlDump();
-        $zipFile = $this->createZipWithPassword($sqlFile);
+        $zipFile = $this->createZipWithPassword(sqlFile: $sqlFile);
 
-        return $this->streamAndCleanup($zipFile, $sqlFile);
+        return $this->streamAndCleanup(zipFile: $zipFile, sqlFile: $sqlFile);
     }
 
-    public function cleanupFiles(...$files)
+    public function cleanupFiles(string ...$files): void
     {
         foreach ($files as $file) {
-            @unlink($file);
+            if (file_exists($file)) {
+                unlink($file);
+            }
+        }
+
+        if (filled($this->tempDirectory) && File::isDirectory($this->tempDirectory)) {
+            File::deleteDirectory($this->tempDirectory);
         }
     }
 
-    private function createSqlDump()
+    private function createSqlDump(): string
     {
         $sqlFile = $this->getSqlFilePath();
         $dumper = $this->configureDumper();
 
-        $this->applyExtraOptions($dumper);
+        $this->applyExtraOptions(dumper: $dumper);
 
         $dumper->dumpToFile($sqlFile);
 
         return $sqlFile;
     }
 
-    private function getSqlFilePath()
+    private function getSqlFilePath(): string
     {
         return sprintf(
             '%s%s%s.sql',
             $this->getTempDirectory(),
             DIRECTORY_SEPARATOR,
-            config('database.connections.mysql.database')
+            config()->string(sprintf('database.connections.%s.database', config()->string('database.default'))),
         );
     }
 
-    private function configureDumper()
+    private function configureDumper(): MySql|PostgreSql
     {
-        return MySql::create()
-            ->setDumpBinaryPath(config('snawbar-backup.mysql_dump_path', ''))
-            ->setHost(config('database.connections.mysql.host'))
-            ->setDbName(config('database.connections.mysql.database'))
-            ->setUserName(config('database.connections.mysql.username'))
-            ->setPassword(config('database.connections.mysql.password'));
+        $driver = config()->string('database.default');
+        $connection = config()->array(sprintf('database.connections.%s', $driver));
+
+        return match ($driver) {
+            'pgsql' => PostgreSql::create()
+                ->setDumpBinaryPath(config()->string('snawbar-backup.pg_dump_path', ''))
+                ->setHost($connection['host'])
+                ->setDbName($connection['database'])
+                ->setUserName($connection['username'])
+                ->setPassword($connection['password']),
+            default => MySql::create()
+                ->setDumpBinaryPath(config()->string('snawbar-backup.mysql_dump_path', ''))
+                ->setHost($connection['host'])
+                ->setDbName($connection['database'])
+                ->setUserName($connection['username'])
+                ->setPassword($connection['password']),
+        };
     }
 
-    private function applyExtraOptions($dumper)
+    private function applyExtraOptions(MySql|PostgreSql $dumper): void
     {
-        foreach (config('snawbar-backup.extra_dump_options', []) as $option) {
+        $driver = config()->string('database.default');
+        $options = config()->array(sprintf('snawbar-backup.extra_dump_options.%s', $driver), []);
+
+        foreach ($options as $option) {
             $dumper->addExtraOption($option);
         }
     }
 
-    private function createZipWithPassword($sqlFile)
+    private function createZipWithPassword(string $sqlFile): string
     {
         $zipFile = $this->getZipFilePath();
-        $archive = $this->openArchive($zipFile, $sqlFile);
+        $zipArchive = $this->openArchive(zipFile: $zipFile, sqlFile: $sqlFile);
 
-        $this->configureArchive($archive, $sqlFile);
-        $archive->close();
+        $this->configureArchive(archive: $zipArchive, sqlFile: $sqlFile);
+        $zipArchive->close();
 
         return $zipFile;
     }
 
-    private function getZipFilePath()
+    private function getZipFilePath(): string
     {
         return sprintf('%s%ssnawbar-backup.zip', $this->getTempDirectory(), DIRECTORY_SEPARATOR);
     }
 
-    private function openArchive($zipFile, $sqlFile)
+    private function openArchive(string $zipFile, string $sqlFile): ZipArchive
     {
         $zipArchive = new ZipArchive;
 
-        if ($zipArchive->open($zipFile, ZipArchive::CREATE) === FALSE) {
+        if ($zipArchive->open(filename: $zipFile, flags: ZipArchive::CREATE) === FALSE) {
             $this->cleanupFiles($sqlFile, $zipFile);
-            abort(500, 'Failed to create ZIP archive');
+            abort(code: 500, message: 'Failed to create ZIP archive');
         }
 
         return $zipArchive;
     }
 
-    private function configureArchive($archive, $sqlFile)
+    private function configureArchive(ZipArchive $zipArchive, string $sqlFile): void
     {
         $fileName = basename($sqlFile);
 
-        $archive->setPassword($this->getPassword());
-        $archive->addFile($sqlFile, $fileName);
-        $archive->setEncryptionName($fileName, ZipArchive::EM_AES_256);
+        $zipArchive->setPassword($this->getPassword());
+        $zipArchive->addFile($sqlFile, $fileName);
+        $zipArchive->setEncryptionName($fileName, ZipArchive::EM_AES_256);
     }
 
-    private function streamAndCleanup($zipFile, $sqlFile)
+    private function streamAndCleanup(string $zipFile, string $sqlFile): StreamedResponse
     {
         $controller = $this;
 
         return response()->streamDownload(
-            function () use ($zipFile, $sqlFile, $controller) {
+            callback: function () use ($zipFile, $sqlFile, $controller): void {
                 readfile($zipFile);
                 $controller->cleanupFiles($sqlFile, $zipFile);
             },
-            $this->getFileName(),
-            ['Content-Type' => 'application/zip']
+            name: $this->getFileName(),
+            headers: ['Content-Type' => 'application/zip'],
         );
     }
 
-    private function getTempDirectory()
+    private function getTempDirectory(): string
     {
-        $directory = config('snawbar-backup.temp_path', storage_path('app/temp-backups'));
+        if (filled($this->tempDirectory)) {
+            return $this->tempDirectory;
+        }
+
+        $directory = sprintf(
+            '%s%s%s',
+            config('snawbar-backup.temp_path', storage_path('app/temp-backups')),
+            DIRECTORY_SEPARATOR,
+            str()->uuid(),
+        );
 
         File::ensureDirectoryExists($directory);
 
-        return $directory;
+        return $this->tempDirectory = $directory;
     }
 
-    private function getPassword()
+    private function getPassword(): string
     {
         $password = config('snawbar-backup.zip_password');
 
         return is_callable($password) ? call_user_func($password) : (string) $password;
     }
 
-    private function getFileName()
+    private function getFileName(): string
     {
         $fileName = config('snawbar-backup.file_name');
 

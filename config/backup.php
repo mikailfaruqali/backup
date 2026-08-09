@@ -85,29 +85,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | MySQL Dump Binary Path
+    | Database Dump Binary Paths
     |--------------------------------------------------------------------------
     |
-    | If "mysqldump" is not in the system's PATH, you can specify its
-    | absolute path here. Example for Windows:
+    | If "mysqldump" or "pg_dump" is not in the system's PATH, you can specify
+    | absolute paths here for MySQL and PostgreSQL binaries. Example for Windows:
     |   'C:/xampp/mysql/bin/mysqldump.exe'
     |
     | Example for Linux or MacOS:
     |   '/usr/bin/mysqldump'
     |
-    | Leave it null to use the default binary in system PATH.
+    | Leave it empty to use default binaries in system PATH.
     |
     */
 
     'mysql_dump_path' => '',
+    'pg_dump_path' => '',
 
     /*
     |--------------------------------------------------------------------------
     | Extra Dump Options
     |--------------------------------------------------------------------------
     |
-    | Additional command-line options to pass to mysqldump. These are useful
-    | for handling permission restrictions or customizing backup behavior.
+    | Additional command-line options to pass to database dumpers. Options are
+    | driver-specific — use the "mysql" key for MySQL options, and the "pgsql"
+    | key for PostgreSQL options. These are useful for handling permission
+    | restrictions or customizing backup behavior.
     |
     | Common options:
     |   --no-tablespaces       Skip tablespace information (fixes PROCESS privilege error)
@@ -125,6 +128,11 @@ return [
     */
 
     'extra_dump_options' => [
-        '--no-tablespaces',
+        'mysql' => [
+            '--no-tablespaces',
+        ],
+        'pgsql' => [
+
+        ],
     ],
 ];
