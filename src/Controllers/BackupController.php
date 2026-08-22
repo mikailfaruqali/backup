@@ -127,13 +127,12 @@ class BackupController
 
     private function streamAndCleanup(string $zipFile, string $sqlFile): StreamedResponse
     {
-        $controller = $this;
+        register_shutdown_function(function () use ($zipFile, $sqlFile): void {
+            $this->cleanupFiles($sqlFile, $zipFile);
+        });
 
         return response()->streamDownload(
-            callback: function () use ($zipFile, $sqlFile, $controller): void {
-                readfile($zipFile);
-                $controller->cleanupFiles($sqlFile, $zipFile);
-            },
+            callback: fn () => readfile($zipFile),
             name: $this->getFileName(),
             headers: ['Content-Type' => 'application/zip'],
         );
