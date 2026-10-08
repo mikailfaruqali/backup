@@ -7,32 +7,18 @@ namespace Snawbar\Backup\Controllers;
 use Illuminate\Support\Facades\File;
 use Spatie\DbDumper\Databases\MySql;
 use Spatie\DbDumper\Databases\PostgreSql;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use ZipArchive;
 
 class BackupController
 {
     private ?string $tempDirectory = NULL;
 
-    public function download(): StreamedResponse
+    public function download(): BinaryFileResponse
     {
-        $sqlFile = $this->createSqlDump();
-        $zipFile = $this->createZipWithPassword(sqlFile: $sqlFile);
+        $zipFile = $this->createZipWithPassword(sqlFile: $this->createSqlDump());
 
-        return $this->streamAndCleanup(zipFile: $zipFile, sqlFile: $sqlFile);
-    }
-
-    public function cleanupFiles(string ...$files): void
-    {
-        foreach ($files as $file) {
-            if (file_exists($file)) {
-                unlink($file);
-            }
-        }
-
-        if (filled($this->tempDirectory) && File::isDirectory($this->tempDirectory)) {
-            File::deleteDirectory($this->tempDirectory);
-        }
+        return response()->download($zipFile, $this->getFileName(), ['Content-Type' => 'application/zip']);
     }
 
     private function createSqlDump(): string
@@ -91,10 +77,12 @@ class BackupController
     private function createZipWithPassword(string $sqlFile): string
     {
         $zipFile = $this->getZipFilePath();
-        $zipArchive = $this->openArchive(zipFile: $zipFile, sqlFile: $sqlFile);
+        $zipArchive = $this->openArchive(zipFile: $zipFile);
 
         $this->configureArchive(zipArchive: $zipArchive, sqlFile: $sqlFile);
         $zipArchive->close();
+
+        File::delete($sqlFile);
 
         return $zipFile;
     }
@@ -104,14 +92,11 @@ class BackupController
         return sprintf('%s%ssnawbar-backup.zip', $this->getTempDirectory(), DIRECTORY_SEPARATOR);
     }
 
-    private function openArchive(string $zipFile, string $sqlFile): ZipArchive
+    private function openArchive(string $zipFile): ZipArchive
     {
         $zipArchive = new ZipArchive;
 
-        if ($zipArchive->open(filename: $zipFile, flags: ZipArchive::CREATE) === FALSE) {
-            $this->cleanupFiles($sqlFile, $zipFile);
-            abort(code: 500, message: 'Failed to create ZIP archive');
-        }
+        abort_if($zipArchive->open(filename: $zipFile, flags: ZipArchive::CREATE) !== TRUE, code: 500, message: 'Failed to create ZIP archive');
 
         return $zipArchive;
     }
@@ -123,19 +108,6 @@ class BackupController
         $zipArchive->setPassword($this->getPassword());
         $zipArchive->addFile($sqlFile, $fileName);
         $zipArchive->setEncryptionName($fileName, ZipArchive::EM_AES_256);
-    }
-
-    private function streamAndCleanup(string $zipFile, string $sqlFile): StreamedResponse
-    {
-        register_shutdown_function(function () use ($zipFile, $sqlFile): void {
-            $this->cleanupFiles($sqlFile, $zipFile);
-        });
-
-        return response()->streamDownload(
-            callback: fn () => readfile($zipFile),
-            name: $this->getFileName(),
-            headers: ['Content-Type' => 'application/zip'],
-        );
     }
 
     private function getTempDirectory(): string
@@ -152,6 +124,8 @@ class BackupController
         );
 
         File::ensureDirectoryExists($directory);
+
+        register_shutdown_function(fn () => File::deleteDirectory($directory));
 
         return $this->tempDirectory = $directory;
     }
