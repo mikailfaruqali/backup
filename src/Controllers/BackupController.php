@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Snawbar\Backup\Controllers;
 
 use Illuminate\Support\Facades\File;
+use Snawbar\Backup\Dumpers\PostgreSql;
 use Spatie\DbDumper\Databases\MySql;
-use Spatie\DbDumper\Databases\PostgreSql;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use ZipArchive;
 
@@ -134,13 +134,19 @@ class BackupController
     {
         $password = config('snawbar-backup.zip_password');
 
-        return is_callable($password) ? call_user_func($password) : (string) $password;
+        return match (TRUE) {
+            is_callable($password) => call_user_func($password),
+            default => (string) $password,
+        };
     }
 
     private function getFileName(): string
     {
         $fileName = config('snawbar-backup.file_name');
 
-        return is_callable($fileName) ? call_user_func($fileName) : (string) $fileName;
+        return match (TRUE) {
+            is_callable($fileName) => call_user_func($fileName),
+            default => (string) $fileName,
+        };
     }
 }
