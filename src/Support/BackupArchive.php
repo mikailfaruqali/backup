@@ -14,6 +14,8 @@ class BackupArchive
 {
     private const COMPRESSION_LEVEL = 1;
 
+    private const PROGRESS_STEP = 0.01;
+
     private const ZIP_NAME = 'snawbar-backup.zip';
 
     public function __construct(
@@ -55,6 +57,29 @@ class BackupArchive
         return sprintf('%s%s%s', $directory, DIRECTORY_SEPARATOR, self::ZIP_NAME);
     }
 
+    public static function sqlPath(string $directory, string $database): string
+    {
+        return sprintf('%s%s%s.sql', $directory, DIRECTORY_SEPARATOR, $database);
+    }
+
+    public function database(): string
+    {
+        return (string) $this->connection['database'];
+    }
+
+    public function driver(): string
+    {
+        return $this->driver;
+    }
+
+    public function tableSizes(): array
+    {
+        return match ($this->driver) {
+            'pgsql' => PostgreSql::tableSizes(),
+            default => [],
+        };
+    }
+
     public function toArray(): array
     {
         return [
@@ -64,13 +89,19 @@ class BackupArchive
         ];
     }
 
-    public function build(string $directory): string
+    public function build(string $directory, ?callable $onProgress = NULL): string
     {
-        $sqlFile = sprintf('%s%s%s.sql', $directory, DIRECTORY_SEPARATOR, $this->connection['database']);
+        $sqlFile = self::sqlPath($directory, $this->database());
         $zipFile = self::zipPath($directory);
+        $progress = $onProgress ?? fn (string $phase, float $fraction): mixed => NULL;
+
+        $progress('dumping', 0.0);
 
         $this->dump(sqlFile: $sqlFile);
-        $this->zip(sqlFile: $sqlFile, zipFile: $zipFile);
+
+        $progress('compressing', 0.0);
+
+        $this->zip(sqlFile: $sqlFile, zipFile: $zipFile, progress: $progress);
 
         File::delete($sqlFile);
 
@@ -103,13 +134,14 @@ class BackupArchive
             ->setPassword((string) ($this->connection['password'] ?? ''));
     }
 
-    private function zip(string $sqlFile, string $zipFile): void
+    private function zip(string $sqlFile, string $zipFile, callable $progress): void
     {
         $zipArchive = new ZipArchive;
         $entryName = basename($sqlFile);
 
         throw_if($zipArchive->open($zipFile, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== TRUE, RuntimeException::class, 'Failed to create ZIP archive');
 
+        $zipArchive->registerProgressCallback(self::PROGRESS_STEP, fn (float $rate): mixed => $progress('compressing', $rate));
         $zipArchive->setPassword($this->password);
         $zipArchive->addFile($sqlFile, $entryName);
         $zipArchive->setCompressionName($entryName, ZipArchive::CM_DEFLATE, self::COMPRESSION_LEVEL);

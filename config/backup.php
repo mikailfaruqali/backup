@@ -109,18 +109,31 @@ return [
     |
     | The "start" route builds the ZIP in a separate PHP process, so large
     | databases never hit the web request timeout. The page polls the
-    | "status" route and then downloads the finished file from "file".
-    |
-    | php_binary: the PHP CLI binary used to run the background build. Leave it
-    | empty to detect it automatically (PHP-FPM's own binary cannot run artisan).
+    | "status" route and then downloads the finished file from "file". The
+    | "cancel" route stops the background process (and pg_dump) and deletes
+    | every file the backup created.
     |
     | keep_hours: unfinished or failed backups older than this are removed the
     | next time a backup starts. Finished backups are removed after download.
     |
     */
 
-    'php_binary' => '',
     'keep_hours' => 24,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Progress Details
+    |--------------------------------------------------------------------------
+    |
+    | While a background backup runs, the "status" route returns the phase
+    | (dumping, compressing) and a percent. When show_details is TRUE, or a
+    | callback that returns TRUE, it also returns the table being dumped, the
+    | dump size so far and the elapsed time. Use a callback to show these
+    | details to developers only.
+    |
+    */
+
+    'show_details' => FALSE,
 
     /*
     |--------------------------------------------------------------------------

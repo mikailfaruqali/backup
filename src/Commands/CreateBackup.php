@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Snawbar\Backup\Commands;
 
 use Illuminate\Console\Command;
+use Snawbar\Backup\Support\BackgroundProcess;
 use Snawbar\Backup\Support\BackupJob;
 use Throwable;
 
@@ -27,7 +28,9 @@ class CreateBackup extends Command
     private function build(BackupJob $backupJob): int
     {
         try {
-            $backupJob->archive()->build($backupJob->directory());
+            $backupJob->recordProcess(getmypid(), BackgroundProcess::detach());
+
+            $backupJob->archive()->build($backupJob->directory(), $backupJob->setProgress(...));
 
             $backupJob->markReady();
 

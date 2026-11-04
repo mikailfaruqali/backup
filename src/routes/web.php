@@ -12,4 +12,5 @@ Route::prefix(config()->string('snawbar-backup.route', 'backup'))
         Route::post('start', 'start')->name('backup.start');
         Route::get('status/{token}', 'status')->name('backup.status');
         Route::get('file/{token}', 'file')->name('backup.file');
+        Route::post('cancel/{token}', 'cancel')->name('backup.cancel');
     });

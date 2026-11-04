@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Snawbar\Backup\Dumpers;
 
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Spatie\DbDumper\Databases\PostgreSql as SpatiePostgreSql;
 
 class PostgreSql extends SpatiePostgreSql
@@ -25,6 +27,19 @@ class PostgreSql extends SpatiePostgreSql
         'SET default_table_access_method = heap;',
     ];
 
+    private const INSERT_PREFIX = 'INSERT INTO ';
+
+    private const INSERT_PATTERN = '/^INSERT INTO (?:public\.)?"?([^"\s(]+)"?/m';
+
+    private const POST_DATA_MARKERS = [
+        'Type: INDEX;',
+        'Type: CONSTRAINT;',
+        'Type: FK CONSTRAINT;',
+        'Type: TRIGGER;',
+    ];
+
+    private const TABLE_SIZES_QUERY = "SELECT c.relname AS name, pg_table_size(c.oid) AS size FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')";
+
     public function __construct()
     {
         parent::__construct();
@@ -32,6 +47,40 @@ class PostgreSql extends SpatiePostgreSql
         $this->addExtraOption(sprintf('--rows-per-insert=%d', self::ROWS_PER_INSERT))
             ->addExtraOption('--no-owner')
             ->addExtraOption('--no-privileges');
+    }
+
+    public static function tableSizes(): array
+    {
+        $sizes = collect(DB::select(self::TABLE_SIZES_QUERY))
+            ->mapWithKeys(fn (object $row): array => [$row->name => (int) $row->size])
+            ->all();
+
+        uksort($sizes, strcmp(...));
+
+        return $sizes;
+    }
+
+    public static function currentTable(string $tail): ?string
+    {
+        preg_match_all(self::INSERT_PATTERN, $tail, $matches);
+
+        return collect($matches[1])->last();
+    }
+
+    public static function dumpedFraction(array $tableSizes, ?string $table, string $tail): float
+    {
+        $total = array_sum($tableSizes);
+        $isPostData = Str::contains($tail, self::POST_DATA_MARKERS) && ! Str::contains($tail, self::INSERT_PREFIX);
+
+        $done = collect($tableSizes)
+            ->filter(fn (int $size, string $name): bool => filled($table) && strcmp($name, $table) < 0)
+            ->sum();
+
+        return match (TRUE) {
+            $isPostData => 1.0,
+            $total === 0 => 0.0,
+            default => $done / $total,
+        };
     }
 
     public function dumpToFile(string $dumpFile): void
@@ -47,7 +96,9 @@ class PostgreSql extends SpatiePostgreSql
 
         $restrictKey = $this->commentOutHeader(handle: $handle);
 
-        when(filled($restrictKey), fn () => $this->commentOutTrailer(handle: $handle, restrictKey: $restrictKey));
+        if (filled($restrictKey)) {
+            $this->commentOutTrailer(handle: $handle, restrictKey: $restrictKey);
+        }
 
         fclose($handle);
     }
@@ -60,7 +111,9 @@ class PostgreSql extends SpatiePostgreSql
         while (($line = fgets($handle)) !== FALSE && ! str_starts_with($line, self::HEADER_END_PREFIX)) {
             $statement = rtrim($line, "\r\n");
 
-            when($this->breaksPortability(statement: $statement), fn () => $this->commentOutAt(handle: $handle, position: $position));
+            if ($this->breaksPortability(statement: $statement)) {
+                $this->commentOutAt(handle: $handle, position: $position);
+            }
 
             $restrictKey ??= $this->restrictKey(statement: $statement);
             $position = ftell($handle);
@@ -78,7 +131,9 @@ class PostgreSql extends SpatiePostgreSql
 
         $index = strrpos((string) stream_get_contents($handle), sprintf(self::UNRESTRICT_FORMAT, $restrictKey));
 
-        when($index !== FALSE, fn () => $this->commentOutAt(handle: $handle, position: $offset + $index));
+        if ($index !== FALSE) {
+            $this->commentOutAt(handle: $handle, position: $offset + $index);
+        }
     }
 
     private function commentOutAt(mixed $handle, int $position): void

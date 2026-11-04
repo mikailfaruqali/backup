@@ -38,9 +38,7 @@ class BackupController
     {
         $backupJob = $this->job($token);
 
-        return response()->json([
-            'state' => $backupJob->status()['state'],
-        ]);
+        return response()->json($backupJob->progress($this->showsDetails()));
     }
 
     public function file(string $token): BinaryFileResponse
@@ -54,6 +52,15 @@ class BackupController
         return response()->download($backupJob->zipPath(), $backupJob->fileName(), ['Content-Type' => 'application/zip']);
     }
 
+    public function cancel(string $token): JsonResponse
+    {
+        $this->job($token)->cancel();
+
+        return response()->json([
+            'state' => 'cancelled',
+        ]);
+    }
+
     private function job(string $token): BackupJob
     {
         $backupJob = BackupJob::find($token, $this->owner());
@@ -61,6 +68,16 @@ class BackupController
         abort_if(! $backupJob instanceof BackupJob, 404);
 
         return $backupJob;
+    }
+
+    private function showsDetails(): bool
+    {
+        $showDetails = config('snawbar-backup.show_details', FALSE);
+
+        return match (TRUE) {
+            is_callable($showDetails) => (bool) call_user_func($showDetails),
+            default => (bool) $showDetails,
+        };
     }
 
     private function owner(): string
