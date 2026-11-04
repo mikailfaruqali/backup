@@ -9,4 +9,7 @@ Route::prefix(config()->string('snawbar-backup.route', 'backup'))
     ->name('snawbar.')
     ->group(function () {
         Route::get('download', 'download')->name('backup.download');
+        Route::post('start', 'start')->name('backup.start');
+        Route::get('status/{token}', 'status')->name('backup.status');
+        Route::get('file/{token}', 'file')->name('backup.file');
     });

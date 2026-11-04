@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace Snawbar\Backup\Dumpers;
 
-use Illuminate\Support\Facades\File;
 use Spatie\DbDumper\Databases\PostgreSql as SpatiePostgreSql;
-use SplFileObject;
 
 class PostgreSql extends SpatiePostgreSql
 {
+    private const ROWS_PER_INSERT = 500;
+
+    private const TRAILER_BYTES = 8192;
+
+    private const COMMENT = '--';
+
     private const HEADER_END_PREFIX = '-- Name: ';
 
     private const RESTRICT_PREFIX = '\restrict ';
@@ -21,15 +25,11 @@ class PostgreSql extends SpatiePostgreSql
         'SET default_table_access_method = heap;',
     ];
 
-    private bool $inHeader = TRUE;
-
-    private ?string $restrictKey = NULL;
-
     public function __construct()
     {
         parent::__construct();
 
-        $this->useInserts()
+        $this->addExtraOption(sprintf('--rows-per-insert=%d', self::ROWS_PER_INSERT))
             ->addExtraOption('--no-owner')
             ->addExtraOption('--no-privileges');
     }
@@ -43,66 +43,63 @@ class PostgreSql extends SpatiePostgreSql
 
     private function makePortable(string $dumpFile): void
     {
-        $portableFile = sprintf('%s.portable', $dumpFile);
+        $handle = fopen($dumpFile, 'r+b');
 
-        $this->copyPortableLines(source: $dumpFile, destination: $portableFile);
+        $restrictKey = $this->commentOutHeader(handle: $handle);
 
-        File::move($portableFile, $dumpFile);
+        when(filled($restrictKey), fn () => $this->commentOutTrailer(handle: $handle, restrictKey: $restrictKey));
+
+        fclose($handle);
     }
 
-    private function copyPortableLines(string $source, string $destination): void
+    private function commentOutHeader(mixed $handle): ?string
     {
-        $input = new SplFileObject($source);
-        $output = new SplFileObject($destination, 'w');
+        $restrictKey = NULL;
+        $position = 0;
 
-        $this->inHeader = TRUE;
-        $this->restrictKey = NULL;
+        while (($line = fgets($handle)) !== FALSE && ! str_starts_with($line, self::HEADER_END_PREFIX)) {
+            $statement = rtrim($line, "\r\n");
 
-        foreach ($input as $line) {
-            if ($this->shouldKeep(line: (string) $line)) {
-                $output->fwrite((string) $line);
-            }
+            when($this->breaksPortability(statement: $statement), fn () => $this->commentOutAt(handle: $handle, position: $position));
+
+            $restrictKey ??= $this->restrictKey(statement: $statement);
+            $position = ftell($handle);
         }
+
+        return $restrictKey;
     }
 
-    private function shouldKeep(string $line): bool
+    private function commentOutTrailer(mixed $handle, string $restrictKey): void
     {
-        $statement = rtrim($line, "\r\n");
+        $size = fstat($handle)['size'];
+        $offset = max(0, $size - self::TRAILER_BYTES);
 
-        $this->trackHeader(statement: $statement);
+        fseek($handle, $offset);
 
-        return match (TRUE) {
-            $this->isRestrictCommand(statement: $statement) => $this->dropRestrictCommand(statement: $statement),
-            $this->isVersionSpecificSetting(statement: $statement) => FALSE,
-            $this->isUnrestrictCommand(statement: $statement) => FALSE,
-            default => TRUE,
+        $index = strrpos((string) stream_get_contents($handle), sprintf(self::UNRESTRICT_FORMAT, $restrictKey));
+
+        when($index !== FALSE, fn () => $this->commentOutAt(handle: $handle, position: $offset + $index));
+    }
+
+    private function commentOutAt(mixed $handle, int $position): void
+    {
+        $current = ftell($handle);
+
+        fseek($handle, $position);
+        fwrite($handle, self::COMMENT);
+        fseek($handle, $current);
+    }
+
+    private function breaksPortability(string $statement): bool
+    {
+        return str_starts_with($statement, self::RESTRICT_PREFIX) || in_array($statement, self::VERSION_SPECIFIC_SETTINGS, TRUE);
+    }
+
+    private function restrictKey(string $statement): ?string
+    {
+        return match (str_starts_with($statement, self::RESTRICT_PREFIX)) {
+            TRUE => substr($statement, strlen(self::RESTRICT_PREFIX)),
+            FALSE => NULL,
         };
-    }
-
-    private function trackHeader(string $statement): void
-    {
-        $this->inHeader = $this->inHeader && ! str_starts_with($statement, self::HEADER_END_PREFIX);
-    }
-
-    private function isRestrictCommand(string $statement): bool
-    {
-        return $this->inHeader && str_starts_with($statement, self::RESTRICT_PREFIX);
-    }
-
-    private function dropRestrictCommand(string $statement): bool
-    {
-        $this->restrictKey = substr($statement, strlen(self::RESTRICT_PREFIX));
-
-        return FALSE;
-    }
-
-    private function isVersionSpecificSetting(string $statement): bool
-    {
-        return $this->inHeader && in_array($statement, self::VERSION_SPECIFIC_SETTINGS, TRUE);
-    }
-
-    private function isUnrestrictCommand(string $statement): bool
-    {
-        return filled($this->restrictKey) && $statement === sprintf(self::UNRESTRICT_FORMAT, $this->restrictKey);
     }
 }

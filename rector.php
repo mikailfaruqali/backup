@@ -18,7 +18,6 @@ return RectorConfig::configure()
         codeQuality: TRUE,
         codingStyle: TRUE,
         privatization: TRUE,
-        naming: TRUE,
     )
     ->withRules([
         ApplyDefaultInsteadOfNullCoalesceRector::class,

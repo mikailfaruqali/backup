@@ -104,6 +104,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Background Backups
+    |--------------------------------------------------------------------------
+    |
+    | The "start" route builds the ZIP in a separate PHP process, so large
+    | databases never hit the web request timeout. The page polls the
+    | "status" route and then downloads the finished file from "file".
+    |
+    | php_binary: the PHP CLI binary used to run the background build. Leave it
+    | empty to detect it automatically (PHP-FPM's own binary cannot run artisan).
+    |
+    | keep_hours: unfinished or failed backups older than this are removed the
+    | next time a backup starts. Finished backups are removed after download.
+    |
+    */
+
+    'php_binary' => '',
+    'keep_hours' => 24,
+
+    /*
+    |--------------------------------------------------------------------------
     | Extra Dump Options
     |--------------------------------------------------------------------------
     |

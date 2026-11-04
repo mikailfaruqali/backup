@@ -4,149 +4,83 @@ declare(strict_types=1);
 
 namespace Snawbar\Backup\Controllers;
 
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\File;
-use Snawbar\Backup\Dumpers\PostgreSql;
-use Spatie\DbDumper\Databases\MySql;
+use Illuminate\Support\Str;
+use Snawbar\Backup\Support\BackgroundProcess;
+use Snawbar\Backup\Support\BackupArchive;
+use Snawbar\Backup\Support\BackupJob;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
-use ZipArchive;
 
 class BackupController
 {
-    private ?string $tempDirectory = NULL;
-
     public function download(): BinaryFileResponse
     {
-        $zipFile = $this->createZipWithPassword(sqlFile: $this->createSqlDump());
+        $directory = $this->temporaryDirectory();
 
-        return response()->download($zipFile, $this->getFileName(), ['Content-Type' => 'application/zip']);
+        $zipFile = BackupArchive::fromConfig()->build($directory);
+
+        return response()->download($zipFile, $this->fileName(), ['Content-Type' => 'application/zip']);
     }
 
-    private function createSqlDump(): string
+    public function start(): JsonResponse
     {
-        $sqlFile = $this->getSqlFilePath();
-        $dumper = $this->configureDumper();
+        $backupJob = BackupJob::create(BackupArchive::fromConfig(), $this->fileName(), $this->owner());
 
-        $this->applyExtraOptions(dumper: $dumper);
+        BackgroundProcess::backup($backupJob->token());
 
-        $dumper->dumpToFile($sqlFile);
-
-        return $sqlFile;
+        return response()->json([
+            'token' => $backupJob->token(),
+        ]);
     }
 
-    private function getSqlFilePath(): string
+    public function status(string $token): JsonResponse
     {
-        return sprintf(
-            '%s%s%s.sql',
-            $this->getTempDirectory(),
-            DIRECTORY_SEPARATOR,
-            config()->string(sprintf('database.connections.%s.database', config()->string('database.default'))),
-        );
+        $backupJob = $this->job($token);
+
+        return response()->json([
+            'state' => $backupJob->status()['state'],
+        ]);
     }
 
-    private function configureDumper(): MySql|PostgreSql
+    public function file(string $token): BinaryFileResponse
     {
-        $driver = config()->string('database.default');
-        $connection = config()->array(sprintf('database.connections.%s', $driver));
+        $backupJob = $this->job($token);
 
-        return match ($driver) {
-            'pgsql' => PostgreSql::create()
-                ->setDumpBinaryPath(config()->string('snawbar-backup.pg_dump_path', ''))
-                ->setHost($connection['host'])
-                ->setDbName($connection['database'])
-                ->setUserName($connection['username'])
-                ->setPassword($connection['password']),
-            default => MySql::create()
-                ->setDumpBinaryPath(config()->string('snawbar-backup.mysql_dump_path', ''))
-                ->setHost($connection['host'])
-                ->setDbName($connection['database'])
-                ->setUserName($connection['username'])
-                ->setPassword($connection['password']),
-        };
+        abort_unless($backupJob->isReady(), 404);
+
+        register_shutdown_function(fn () => $backupJob->delete());
+
+        return response()->download($backupJob->zipPath(), $backupJob->fileName(), ['Content-Type' => 'application/zip']);
     }
 
-    private function applyExtraOptions(MySql|PostgreSql $dumper): void
+    private function job(string $token): BackupJob
     {
-        $driver = config()->string('database.default');
-        $options = config()->array(sprintf('snawbar-backup.extra_dump_options.%s', $driver), []);
+        $backupJob = BackupJob::find($token, $this->owner());
 
-        foreach ($options as $option) {
-            $dumper->addExtraOption($option);
-        }
+        abort_if(! $backupJob instanceof BackupJob, 404);
+
+        return $backupJob;
     }
 
-    private function createZipWithPassword(string $sqlFile): string
+    private function owner(): string
     {
-        $zipFile = $this->getZipFilePath();
-        $zipArchive = $this->openArchive(zipFile: $zipFile);
-
-        $this->configureArchive(zipArchive: $zipArchive, sqlFile: $sqlFile);
-        $zipArchive->close();
-
-        File::delete($sqlFile);
-
-        return $zipFile;
+        return sprintf('%s|%s', request()->getHost(), auth()->id());
     }
 
-    private function getZipFilePath(): string
+    private function temporaryDirectory(): string
     {
-        return sprintf('%s%ssnawbar-backup.zip', $this->getTempDirectory(), DIRECTORY_SEPARATOR);
-    }
+        $directory = sprintf('%s%s%s', BackupJob::root(), DIRECTORY_SEPARATOR, Str::uuid());
 
-    private function openArchive(string $zipFile): ZipArchive
-    {
-        $zipArchive = new ZipArchive;
-
-        abort_if($zipArchive->open(filename: $zipFile, flags: ZipArchive::CREATE) !== TRUE, code: 500, message: 'Failed to create ZIP archive');
-
-        return $zipArchive;
-    }
-
-    private function configureArchive(ZipArchive $zipArchive, string $sqlFile): void
-    {
-        $fileName = basename($sqlFile);
-
-        $zipArchive->setPassword($this->getPassword());
-        $zipArchive->addFile($sqlFile, $fileName);
-        $zipArchive->setEncryptionName($fileName, ZipArchive::EM_AES_256);
-    }
-
-    private function getTempDirectory(): string
-    {
-        if (filled($this->tempDirectory)) {
-            return $this->tempDirectory;
-        }
-
-        $directory = sprintf(
-            '%s%s%s',
-            config('snawbar-backup.temp_path', storage_path('app/temp-backups')),
-            DIRECTORY_SEPARATOR,
-            str()->uuid(),
-        );
-
-        File::ensureDirectoryExists($directory);
+        File::ensureDirectoryExists($directory, 0700);
 
         register_shutdown_function(fn () => File::deleteDirectory($directory));
 
-        return $this->tempDirectory = $directory;
+        return $directory;
     }
 
-    private function getPassword(): string
+    private function fileName(): string
     {
-        $password = config('snawbar-backup.zip_password');
-
-        return match (TRUE) {
-            is_callable($password) => call_user_func($password),
-            default => (string) $password,
-        };
-    }
-
-    private function getFileName(): string
-    {
-        $fileName = config('snawbar-backup.file_name');
-
-        return match (TRUE) {
-            is_callable($fileName) => call_user_func($fileName),
-            default => (string) $fileName,
-        };
+        return BackupArchive::resolve(config('snawbar-backup.file_name'));
     }
 }
